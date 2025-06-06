@@ -4,16 +4,11 @@
 # <tab>	IdentityFile <a> 	-> ssh key for remote access
 # <tab> User <a>		-> username of associated account
 # <tab> Email <a>		-> email of associated account
-
-# Example
-Account myaccount
-	Identity ada
-	User my-git-username
-	Email my-associated@email.com
-
-# Another example
-Account other
-	IdentityFile ~/.ssh/others-key
-	User other
-	Email other@email.com
-
+#
+# Example:
+# 
+# Account my_account
+#	 Identity git_my_account
+#	 User my-git-username
+#	 Email my-associated@email.com
+#

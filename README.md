@@ -1,10 +1,10 @@
 # *git-a*ccount manager
 
-A tool for easily commiting locally and interacting with remote
+A tool for easily commiting and interacting with remote
 repos as different git accounts without manual configuration
 on a per repo basis.
 
-`git-a` also creates a directory at ~/.git-a that will contain
+`git-a` creates a directory at ~/.git-a that will contain
 a config file for managing git-a account data. An example
 file is provided in [config\_example](config_example).
 
@@ -17,6 +17,8 @@ options:
     -D          delete the ~/.ssh/config entry on account remove
     -h          display a usage message
 ```
+
+# Example
 
 Here I create and use a new account called `myaccount` with 
 `user.name=reallygoodprogrammer`, `user.email=myemail@email.com`, 

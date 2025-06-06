@@ -105,6 +105,7 @@ function add_account {
 	echo -e "\nHost git_$1" >> $HOME/.ssh/config
 	echo -e "\tHostName github.com" >> $HOME/.ssh/config
 	echo -e "\tIdentityFile ${keyfile}" >> $HOME/.ssh/config
+	echo -e "\tIdentitiesOnly yes" >> $HOME/.ssh/config
 	echo -e "\tUser git\n" >> $HOME/.ssh/config
 
 	echo -e "\nAccount $1" >> ${CONFIG}
