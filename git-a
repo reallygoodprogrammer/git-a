@@ -1,0 +1,252 @@
+# git-a
+#
+# Git Account Manager
+# by Miles (@reallygoodprogrammer)
+#
+#!/bin/bash
+
+PATH="/usr/bin:/bin"
+export PATH
+
+ACCOUNT=""
+USERNAME=""
+EMAIL=""
+SSHID=""
+
+function usage {
+	echo "usage: git-a [ add | remove | account-name git-command(s) ]"
+	echo "options:"
+    	echo "-c FILE     spcify a custom config file to use"
+	echo "-D          delete the ~/.ssh/config entry on account remove"
+    	echo "-h          display this help message"
+	if [ $# -ne 0 ]; then
+		exit $1
+	fi
+}
+
+
+# parse account details into global variables 
+function parse_account {
+	ACCOUNT=$2
+	shift 2
+	while [ $# -gt 1 ]; do
+		case "$1" in
+			"Identity")
+				SSHID=$2
+				if [ ! -e $2 ]; then
+					if [ -z "$(grep "Host $2" $HOME/.ssh/config)" ]; then
+						echo "error: in ssh config, host '$2' does not exist"
+						exit 1
+					fi
+				fi
+				;;
+			"User")
+				USERNAME="$2"
+				;;
+			"Email")
+				EMAIL="$2"
+				;;
+			"Account")
+				echo "malformed config file: '$1 $2'"
+				exit 1
+				;;
+			*)
+				echo "error: in config file, '$1' not understood"
+				exit 1
+				;;
+		esac
+		shift 2
+	done
+}
+
+
+function add_account_usage {
+	echo -e "usage:\tgit-a add <account-name> <name> <email> /path/to/ssh/key"
+	if [ $# -gt 0 ]; then
+		exit $1
+	fi
+}
+
+
+# add an account to git-a config
+function add_account {
+	if [ ! -e ${CONFIG} ]; then
+		if [ ! -d $(dirname ${CONFIG}) ]; then
+			mkdir -p $(dirname ${CONFIG})
+			if [ $? -ne 0 ]; then
+				echo "failed to create '$(dirname ${CONFIG})'"
+				exit 1
+			fi
+			chmod 600 $(dirname ${CONFIG})
+		fi
+		touch ${CONFIG}
+		if [ $? -ne 0 ]; then
+			echo "failed to create '${CONFIG}')"
+			exit 1
+		fi
+		chmod 600 ${CONFIG}
+	fi
+
+	if [ $# -ne 4 ]; then
+		add_account_usage 1
+	fi
+	if [ ! -e "$4" ]; then
+		echo "error: no such file '$4'"
+		add_account_usage 1
+	fi
+
+	keyfile=$(readlink -f $4)
+
+	if [ ! -d "$HOME/.ssh" ]; then
+		mkdir $HOME/.ssh
+		chmod 600 $HOME/.ssh
+	fi
+
+	echo -e "\nHost git_$1" >> $HOME/.ssh/config
+	echo -e "\tHostName github.com" >> $HOME/.ssh/config
+	echo -e "\tIdentityFile ${keyfile}" >> $HOME/.ssh/config
+	echo -e "\tUser git\n" >> $HOME/.ssh/config
+
+	echo -e "\nAccount $1" >> ${CONFIG}
+	echo -e "\tUser $2" >> ${CONFIG}
+	echo -e "\tEmail $3" >> ${CONFIG}
+	echo -e "\tIdentity git_$1\n" >> ${CONFIG}
+}
+
+
+# remove an account from git-a config
+function remove_account {
+	if [ $# -eq 1 ]; then
+		echo "usage: gita [-D] remove <account-name>"
+		exit 1
+	fi
+
+	acct=$(awk -v acct="Account $1" '$0 ~ "^" acct {print_block=1} 
+                     print_block && NF==0 {print_block=0} 
+		     print_block' ${CONFIG})
+
+	if [ $? -ne 0 ]; then
+		echo "failed to read config file"
+		exit 1
+	fi
+
+	if [ -z "${acct}" ]; then
+		echo "error: no matching account '$1'"
+		exit 1
+	fi
+	
+	parse_account $acct
+
+	tmpfile=$(mktemp)
+
+	if [ $2 -eq 1 ]; then
+		sed "/^Host $SSHID/,/^$/d" $HOME/.ssh/config > ${tmpfile}
+		mv ${tmpfile} $HOME/.ssh/config
+	fi
+
+	sed "/^Account $ACCOUNT/,/^$/d" ${CONFIG} > ${tmpfile}
+	mv ${tmpfile} ${CONFIG}
+}
+
+
+# execute some git action using some account
+function execute {
+	acct=$(awk -v acct="Account $1" '$0 ~ "^" acct {print_block=1} 
+		     print_block && NF==0 {print_block=0} 
+		     print_block' ${CONFIG})
+	if [ $? -ne 0 ]; then
+		echo "failed to read config file"
+		exit 1
+	fi
+	
+	parse_account ${acct}	
+
+	if [ -z "$acct" ]; then
+		echo "no matching account specified: '$1'"
+		exit 1
+	fi
+
+	shift
+
+	# if we are creating a repo
+	if [ "$2" == "init" ] || [ "$2 $3" == "remote add" ]; then
+		git "$@"
+		exit $?
+	fi
+
+	origin_url=$(git remote get-url origin 2>&1)
+	if [ ! -z "$(echo "${origin_url}" | grep -E "^fatal:|^error:")" ]; then
+		echo ${origin_url}
+		exit 1
+	fi
+
+	# get repo git settings
+	settings=$(git config -l | sed 's/\ /\n/g')
+	username=$(echo "${settings}" | grep "user.name=" | cut -d "=" -f 2)
+	email=$(echo "${settings}" | grep "user.email=" | cut -d "=" -f 2)
+
+	# switch to account settings
+	git config user.name "${USERNAME}"
+	git config user.email "${EMAIL}"
+
+	# set correct origin url
+	new_origin_url=$(echo "$origin_url" | sed "s/^git@.*:/git@${SSHID}:/")
+	git remote set-url origin ${new_origin_url}
+
+	# execute actual command
+	git "$@"
+
+	git remote set-url origin ${origin_url}
+
+	if [ ! -z "${username}" ]; then
+		git config user.name "${username}"
+	fi
+	if [ ! -z "${email}" ]; then
+		git config user.email "${email}"
+	fi
+}
+
+
+# Look for environment variables
+CONFIG=$(echo $GITAM_CONFIG)
+if [ -z "${CONFIG}" ]; then
+	CONFIG="$HOME/.git-a/config"
+fi
+
+REMOVE_SSHID=0
+
+while getopts "hc:D" o; do
+	case "${o}" in
+		h)
+			usage 0
+			;;
+		c)
+			CONFIG=${OPTARG}
+			;;
+		D)
+			REMOVE_SSHID=1
+			;;
+		*)
+			usage 1
+			;;
+	esac
+done
+shift $((OPTIND - 1))
+
+
+case "$1" in 
+	"")
+		usage 0
+		;;
+	"add")
+		shift
+		add_account "$@"
+		;;
+	"remove")
+		shift
+		remove_account $1 $REMOVE_SSHID
+		;;
+	*)
+		execute "$@"
+		;;
+esac
